@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, X, Bot, Loader2, Sparkles } from 'lucide-react';
+import { Send, X, Bot, Loader2, Sparkles, Key } from 'lucide-react';
 import { ChatMessage } from '../types';
-import { sendMessageToGemini } from '../services/geminiService';
+import { sendMessageToGemini, hasApiKey, setApiKey } from '../services/geminiService';
 
 interface ChatAssistantProps {
   isOpen: boolean;
@@ -14,7 +14,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({ isOpen, onClose, c
     { role: 'model', text: 'Hey there! 👋 I\'m your Game Buddy. Need any tips or help?', timestamp: Date.now() }
   ]);
   const [inputText, setInputText] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [needsApiKey, setNeedsApiKey] = useState(!hasApiKey());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -23,7 +25,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({ isOpen, onClose, c
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isOpen]);
+  }, [messages, isOpen, needsApiKey]);
+
+  const handleSaveApiKey = () => {
+    if (!apiKeyInput.trim()) return;
+    setApiKey(apiKeyInput.trim());
+    setNeedsApiKey(false);
+    setMessages(prev => [...prev, {
+      role: 'model',
+      text: 'Great! I\'m connected and ready to help. Ask me anything!',
+      timestamp: Date.now()
+    }]);
+  };
 
   const handleSend = async () => {
     if (!inputText.trim() || isLoading) return;
@@ -38,10 +51,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({ isOpen, onClose, c
       if (contextGameTitle) {
         prompt = `[Context: Playing ${contextGameTitle}] ${inputText}`;
       }
-      
+
       const responseText = await sendMessageToGemini(prompt);
-      const aiMsg: ChatMessage = { role: 'model', text: responseText, timestamp: Date.now() };
-      setMessages(prev => [...prev, aiMsg]);
+
+      if (responseText === 'MISSING_API_KEY') {
+        setNeedsApiKey(true);
+        setMessages(prev => [...prev, {
+          role: 'model',
+          text: 'Oops! It looks like I need a valid API Key to keep chatting.',
+          timestamp: Date.now()
+        }]);
+      } else {
+        const aiMsg: ChatMessage = { role: 'model', text: responseText, timestamp: Date.now() };
+        setMessages(prev => [...prev, aiMsg]);
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -80,12 +103,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({ isOpen, onClose, c
       <div className="flex-grow overflow-y-auto p-5 space-y-6 custom-scrollbar bg-hub-bg">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div 
-              className={`max-w-[85%] p-4 text-sm font-medium shadow-sm leading-relaxed ${
-                msg.role === 'user' 
-                  ? 'bg-hub-primary text-white rounded-3xl rounded-br-none' 
+            <div
+              className={`max-w-[85%] p-4 text-sm font-medium shadow-sm leading-relaxed ${msg.role === 'user'
+                  ? 'bg-hub-primary text-white rounded-3xl rounded-br-none'
                   : 'bg-white text-hub-text border-2 border-gray-100 rounded-3xl rounded-bl-none'
-              }`}
+                }`}
             >
               {msg.text}
             </div>
@@ -102,31 +124,69 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({ isOpen, onClose, c
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Input Area */}
       <div className="p-5 border-t-2 border-gray-100 bg-white">
-        <div className="relative">
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder={contextGameTitle ? `Ask about ${contextGameTitle}...` : "Ask for a tip..."}
-            className="w-full bg-gray-50 border-2 border-gray-200 focus:border-hub-primary rounded-2xl py-3.5 pl-5 pr-14 text-sm font-bold focus:outline-none focus:bg-white text-hub-text placeholder-gray-400 transition-all"
-          />
-          <button 
-            onClick={handleSend}
-            disabled={!inputText.trim() || isLoading}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-hub-primary text-white rounded-xl hover:bg-violet-600 disabled:opacity-50 disabled:hover:bg-hub-primary transition-colors shadow-sm"
-          >
-            <Send size={18} />
-          </button>
-        </div>
-        <div className="flex justify-center items-center mt-3 gap-1 text-gray-400">
-           <Sparkles size={12} />
-           <p className="text-[10px] font-bold uppercase tracking-wider">
-            Powered by Gemini
-          </p>
-        </div>
+        {needsApiKey ? (
+          <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center gap-2 mb-2 text-orange-800 font-bold text-sm">
+              <Key size={16} />
+              <span>Enter Gemini API Key</span>
+            </div>
+            <p className="text-xs text-orange-600 mb-3">
+              To chat with Game Buddy, you need a free Google Gemini API key. It will be saved securely in your browser.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder="Paste API Key here..."
+                className="flex-grow bg-white border-2 border-orange-200 focus:border-orange-400 rounded-xl px-3 py-2 text-sm font-bold text-hub-text focus:outline-none"
+              />
+              <button
+                onClick={handleSaveApiKey}
+                disabled={!apiKeyInput.trim()}
+                className="bg-orange-500 text-white font-bold px-4 py-2 rounded-xl hover:bg-orange-600 disabled:opacity-50 transition-colors text-sm"
+              >
+                Save
+              </button>
+            </div>
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mt-3 text-center text-xs font-bold text-orange-400 hover:text-orange-600 hover:underline"
+            >
+              Get a free API Key →
+            </a>
+          </div>
+        ) : (
+          <>
+            <div className="relative">
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder={contextGameTitle ? `Ask about ${contextGameTitle}...` : "Ask for a tip..."}
+                className="w-full bg-gray-50 border-2 border-gray-200 focus:border-hub-primary rounded-2xl py-3.5 pl-5 pr-14 text-sm font-bold focus:outline-none focus:bg-white text-hub-text placeholder-gray-400 transition-all"
+              />
+              <button
+                onClick={handleSend}
+                disabled={!inputText.trim() || isLoading}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-hub-primary text-white rounded-xl hover:bg-violet-600 disabled:opacity-50 disabled:hover:bg-hub-primary transition-colors shadow-sm"
+              >
+                <Send size={18} />
+              </button>
+            </div>
+            <div className="flex justify-center items-center mt-3 gap-1 text-gray-400">
+              <Sparkles size={12} />
+              <p className="text-[10px] font-bold uppercase tracking-wider">
+                Powered by Gemini
+              </p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
